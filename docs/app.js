@@ -61,10 +61,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function downloadJSON(name, obj) {
-    downloadBlob(name, new Blob(
-      [JSON.stringify(obj, null, 2)],
-      { type: "application/json" }
-    ));
+    downloadBlob(
+      name,
+      new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" })
+    );
   }
 
   // ---------- CAMERA ----------
@@ -114,14 +114,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function stopAll() {
+  async function stopAll() {
     clearInterval(clockTimer);
     clockVal.textContent = "--";
+
+    // stop any active recording cleanly
+    attemptActive = false;
+    await stopRecording();
 
     if (camera) camera.stop();
     if (stream) stream.getTracks().forEach(t => t.stop());
 
-    attemptActive = false;
     madeBtn.disabled = true;
     missBtn.disabled = true;
 
@@ -186,30 +189,66 @@ document.addEventListener("DOMContentLoaded", () => {
     clockRemaining = sec;
     clockVal.textContent = sec;
 
-    clockTimer = setInterval(() => {
+    clockTimer = setInterval(async () => {
       clockRemaining--;
       clockVal.textContent = clockRemaining;
       if (clockRemaining <= 0) {
         clearInterval(clockTimer);
-        stopRecording();
         attemptActive = false;
+        await stopRecording();
       }
     }, 1000);
   }
 
   function startRecording() {
+    if (!stream) return;
+
+    console.log("Recording started");
     chunks = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+
+    // Safari compatibility: pick a mimeType only if supported
+    const options = {};
+    const preferred = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4"
+    ];
+    for (const mt of preferred) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(mt)) {
+        options.mimeType = mt;
+        break;
+      }
+    }
+
+    recorder = new MediaRecorder(stream, options);
+    recorder.ondataavailable = e => e.data && e.data.size > 0 && chunks.push(e.data);
     recorder.start(200);
   }
 
+  // ✅ FIXED: stopRecording now returns a Promise and waits for onstop
   function stopRecording() {
-    if (!recorder || !attemptId) return;
-    recorder.onstop = () => {
-      clips[attemptId] = new Blob(chunks, { type: "video/webm" });
-    };
-    recorder.stop();
+    return new Promise(resolve => {
+      if (!recorder || recorder.state === "inactive") {
+        recorder = null;
+        resolve();
+        return;
+      }
+
+      recorder.onstop = () => {
+        console.log("Recording stopped. Chunks:", chunks.length);
+
+        // only save if we actually captured data
+        if (chunks.length > 0 && attemptId) {
+          clips[attemptId] = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+        }
+
+        recorder = null;
+        resolve();
+      };
+
+      recorder.stop();
+    });
   }
 
   async function startBasketballMode() {
@@ -230,7 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const w = lm[16], e = lm[14];
 
-      if (attemptActive) {
+      if (attemptActive && attemptId) {
         poseData[attemptId].push({ t_ms: t, wrist: w, elbow: e });
       }
 
@@ -249,8 +288,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         startClock(10);
         startRecording();
+
         madeBtn.disabled = false;
         missBtn.disabled = false;
+
         setStatus("Free throw detected");
       }
 
@@ -268,25 +309,44 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function resolve(type) {
     if (!attemptId) return;
+
     attempts.at(-1).made = type;
     if (type === "made") session.scoreboard[teamEl.value]++;
+
     madeBtn.disabled = true;
     missBtn.disabled = true;
+
+    // Do NOT force-stop recording here; let clock or End Session stop it.
     attemptActive = false;
+
     setStatus(`Shot: ${type}`);
   }
 
   async function endSession() {
+    // ✅ IMPORTANT: stop recorder and WAIT for blob before zipping
+    attemptActive = false;
+    await stopRecording();
+
     session.ended_at = nowISO();
+
     downloadJSON("session.json", session);
     downloadJSON("attempts.json", attempts);
     downloadJSON("pose.json", poseData);
 
-    const zip = new JSZip();
-    Object.entries(clips).forEach(([id, b]) => zip.file(`${id}.webm`, b));
-    downloadBlob("clips.zip", await zip.generateAsync({ type: "blob" }));
+    const clipKeys = Object.keys(clips);
+    if (clipKeys.length === 0) {
+      alert("No clips recorded yet. Trigger at least one free throw attempt first.");
+      setStatus("Session downloaded (no clips)");
+      return;
+    }
 
-    setStatus("Session downloaded");
+    const zip = new JSZip();
+    clipKeys.forEach(id => zip.file(`${id}.webm`, clips[id]));
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    downloadBlob("clips.zip", zipBlob);
+
+    setStatus(`Session downloaded (${clipKeys.length} clip${clipKeys.length === 1 ? "" : "s"})`);
   }
 
   // ---------- UI ----------
