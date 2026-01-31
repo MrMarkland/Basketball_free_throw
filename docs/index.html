@@ -3,25 +3,17 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Frontend-Only Basketball System</title>
+  <title>Basketball Vision System (TFJS)</title>
   <link rel="stylesheet" href="styles.css"/>
 </head>
-  <script src="app.js"></script>
 
 <body>
-
 <header>
   <h1>Basketball Vision System</h1>
-  <p class="sub">TEST MODE → Basketball Mode → Download Session</p>
+  <p class="sub">TFJS Pose (MoveNet) → Release + Net Motion → Auto Score → Download</p>
 </header>
 
 <section class="controls">
-  <label>Mode</label>
-  <select id="mode">
-    <option value="test">TEST: Hand + Finger Detection</option>
-    <option value="basketball">Basketball: Free Throws</option>
-  </select>
-
   <div class="grid2">
     <div>
       <label>Team</label>
@@ -29,32 +21,60 @@
         <option value="A">Team A</option>
         <option value="B">Team B</option>
       </select>
+      <p class="hint">For one-person scoring, just keep one team selected.</p>
     </div>
     <div>
       <label>Player ID</label>
       <input id="playerId" value="shooter_1"/>
+      <p class="hint">Used in attempts.json.</p>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <label>Mode</label>
+      <select id="mode">
+        <option value="basketball">Basketball: Auto hoop scoring</option>
+        <option value="test">TEST: Net motion only (for calibration)</option>
+      </select>
+      <p class="hint">Use TEST mode to confirm the hoop box is correct.</p>
+    </div>
+    <div>
+      <label>Motion sensitivity</label>
+      <input id="motionThresh" type="range" min="8000" max="90000" step="1000" value="30000"/>
+      <div class="small">Threshold: <span id="motionThreshVal">30000</span></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <label>Attempt window (ms)</label>
+      <input id="attemptWindow" type="number" value="1400" min="600" max="4000" step="100"/>
+      <p class="hint">How long we wait after release to decide made/miss.</p>
+    </div>
+    <div>
+      <label>Holdoff (ms)</label>
+      <input id="holdoff" type="number" value="700" min="200" max="2000" step="50"/>
+      <p class="hint">Delay after release before we start checking net motion.</p>
     </div>
   </div>
 
   <div class="row">
     <button id="start">Start Camera</button>
-    <button id="run" disabled>Start Mode</button>
+    <button id="calibrate" disabled>Calibrate Hoop Box</button>
+    <button id="run" disabled>Start</button>
     <button id="stop" disabled>Stop</button>
-  </div>
-
-  <div class="clock">
-    <div>Free-Throw Clock</div>
-    <div id="clockVal">--</div>
-  </div>
-
-  <div class="row">
-    <button id="made" disabled>Made</button>
-    <button id="miss" disabled>Miss</button>
     <button id="endSession" disabled>End Session + Download</button>
   </div>
 
+  <div class="scoreRow">
+    <div class="scoreBox">Score A: <span id="scoreA">0</span></div>
+    <div class="scoreBox">Score B: <span id="scoreB">0</span></div>
+    <div class="scoreBox">Last: <span id="lastResult">—</span></div>
+  </div>
+
   <div id="status" class="status">Idle</div>
-  <div id="testReadout" class="status subtle"></div>
+  <div id="debug" class="status subtle"></div>
 </section>
 
 <section class="view">
@@ -62,15 +82,14 @@
   <canvas id="overlay"></canvas>
 </section>
 
+<!-- ZIP for clips -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-<!-- MediaPipe -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<!-- TensorFlow.js + Pose Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 
+<!-- Your app (LOAD ONCE, AT END) -->
 <script src="app.js"></script>
 </body>
 </html>
-
